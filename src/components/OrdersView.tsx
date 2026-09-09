@@ -498,7 +498,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 onClick={() => onSelectOrder(order)}
                 className="bg-[#141419] hover:bg-[#181822] active:bg-[#1c1c28] border border-[#232430] hover:border-[#383a4c] rounded-xl p-3 sm:px-4 sm:py-3 shadow-xs transition-all cursor-pointer select-none group relative"
               >
-                {/* Line 1: Order #, Row # & Customer Name on Left, Status Button (Col J) on Right */}
+                {/* Line 1: Order # & Row # on Left, Status Button (Col J) on Right */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <span className="text-xs font-mono font-bold text-gray-400 group-hover:text-purple-400 shrink-0">
@@ -509,9 +509,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         Row #{order.rowIndex}
                       </span>
                     )}
-                    <span className="text-sm font-semibold text-white tracking-tight truncate">
-                      {order.customerName || 'গ্রাহকের নাম নেই'}
-                    </span>
                   </div>
 
                   {/* Status Button (Column J) */}
@@ -558,10 +555,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </div>
                 </div>
 
-                {/* Line 2: Product Name on Left, Price on Right */}
+                {/* Line 2: Customer Name First, then Product Name on Left, Price on Right */}
                 <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
-                  <div className="text-gray-400 truncate font-medium flex-1 min-w-0 pr-2">
-                    <span className="truncate block">{order.product || 'Golden Watch Combo'}</span>
+                  <div className="flex items-center gap-1.5 text-gray-400 font-medium flex-1 min-w-0 pr-2">
+                    <span className="text-sm sm:text-base font-bold text-white tracking-tight truncate shrink-0 max-w-[150px] sm:max-w-[220px]">
+                      {order.customerName || 'গ্রাহকের নাম নেই'}
+                    </span>
+                    <span className="text-gray-600 shrink-0">•</span>
+                    <span className="truncate block">
+                      {order.product || 'Golden Watch Combo'}
+                    </span>
                   </div>
 
                   <div className="shrink-0 flex items-center gap-1.5">
