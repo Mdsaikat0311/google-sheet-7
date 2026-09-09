@@ -631,7 +631,12 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'reports' && <ReportsView />}
+          {activeTab === 'reports' && (
+            <ReportsView
+              spreadsheetId={spreadsheetId}
+              orders={orders}
+            />
+          )}
         </div>
       </main>
 

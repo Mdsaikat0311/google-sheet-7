@@ -1,4 +1,4 @@
-import { Product, Order } from '../types';
+import { Product, Order, Sheet1ProductReport, ProductReportSource } from '../types';
 
 export const DEFAULT_SPREADSHEET_ID = '1aHUCGINJ8rB29rXXckH7uMTwrk163v6aQFTfQ6ptr6M';
 
@@ -1780,4 +1780,200 @@ export const seedSampleProducts = async (
       }),
     }
   );
+};
+
+/**
+ * Helper to parse a count and optional rate string like "4 (57.1%)" or 7.0 or "0 (0.0%)"
+ */
+const parseCountAndRate = (val: any): { count: number; rate: string } => {
+  if (val === undefined || val === null || val === '') {
+    return { count: 0, rate: '' };
+  }
+  const s = String(val).trim();
+  if (
+    s.toLowerCase() === 'confirm' ||
+    s.toLowerCase() === 'delivery' ||
+    s.toLowerCase() === 'pending' ||
+    s.toLowerCase() === 'cancel' ||
+    s.toLowerCase() === 'partial' ||
+    s.toLowerCase() === 'order lead' ||
+    s.toLowerCase() === 'quantity'
+  ) {
+    return { count: 0, rate: '' };
+  }
+  const match = s.match(/^(\d+(?:\.\d+)?)(?:\s*\(([\d.]+%)\))?$/);
+  if (match) {
+    const num = parseFloat(match[1]);
+    return {
+      count: isNaN(num) ? 0 : num,
+      rate: match[2] || '',
+    };
+  }
+  const numOnly = parseFloat(s.replace(/[^0-9.]/g, ''));
+  return { count: isNaN(numOnly) ? 0 : numOnly, rate: '' };
+};
+
+/**
+ * Fetch and parse Sheet 1 real-time product & source relation reports
+ */
+export const fetchSheet1Reports = async (
+  spreadsheetId: string = DEFAULT_SPREADSHEET_ID
+): Promise<{ products: Sheet1ProductReport[]; tabName: string }> => {
+  const cleanId = extractSpreadsheetId(spreadsheetId);
+  const targetTab = 'Sheet1';
+  const url = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(targetTab)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { products: [], tabName: targetTab };
+    const text = await res.text();
+    const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+)\);/);
+    if (!match || !match[1]) return { products: [], tabName: targetTab };
+
+    const data = JSON.parse(match[1]);
+    if (!data.table || !data.table.cols || !data.table.rows) {
+      return { products: [], tabName: targetTab };
+    }
+
+    const cols = data.table.cols;
+    const rows = data.table.rows;
+    const products: Sheet1ProductReport[] = [];
+
+    const getCellValue = (rIdx: number, cIdx: number) => {
+      if (rIdx < rows.length) {
+        const rowCells = rows[rIdx]?.c;
+        if (rowCells && cIdx < rowCells.length && rowCells[cIdx]) {
+          return rowCells[cIdx].v !== null && rowCells[cIdx].v !== undefined ? rowCells[cIdx].v : '';
+        }
+      }
+      return '';
+    };
+
+    // Find all product header columns (starts where label has Lead: or tk or product indicators)
+    for (let cIdx = 0; cIdx < cols.length; cIdx++) {
+      const colLabel = String(cols[cIdx]?.label || '').trim();
+      if (!colLabel) continue;
+
+      // Check if this column is a product block header
+      const isProductHeader = /lead:|confirm:|del:|tk|dispancer|toys/i.test(colLabel);
+      if (!isProductHeader) continue;
+
+      // Extract product title (before parentheses)
+      const rawTitle = colLabel.split('(')[0].trim();
+      const cleanProductName = rawTitle || colLabel;
+
+      // Extract stats from header string
+      const leadMatch = colLabel.match(/Lead:\s*(\d+)/i);
+      const confirmMatch = colLabel.match(/Confirm:\s*(\d+)(?:\s*\(([\d.]+%)\))?/i);
+      const delMatch = colLabel.match(/Del:\s*(\d+)(?:\s*\(([\d.]+%)\))?/i);
+      const penMatch = colLabel.match(/Pen:\s*(\d+)(?:\s*\(([\d.]+%)\))?/i);
+      const partMatch = colLabel.match(/Part:\s*(\d+)(?:\s*\(([\d.]+%)\))?/i);
+      const qtyMatch = colLabel.match(/Qty:\s*(\d+)/i);
+      const canMatch = colLabel.match(/Can:\s*(\d+)(?:\s*\(([\d.]+%)\))?/i);
+
+      // Extract the first source label from the end of the header (e.g. Website (50.0%))
+      const firstSourceMatch = colLabel.match(/\)\s*([A-Za-z]+(?:\s*\([\d.]*%\))?)$/);
+      const firstSourceRaw = firstSourceMatch ? firstSourceMatch[1].trim() : 'Website';
+      const firstSourceShareMatch = firstSourceRaw.match(/\(([\d.]+%)\)/);
+      const firstSourceName = firstSourceRaw.replace(/\s*\([\d.]*%\)/, '').trim();
+
+      const overall = {
+        lead: leadMatch ? parseInt(leadMatch[1], 10) : 0,
+        confirm: confirmMatch ? parseInt(confirmMatch[1], 10) : 0,
+        confirmRate: confirmMatch && confirmMatch[2] ? confirmMatch[2] : '0%',
+        delivery: delMatch ? parseInt(delMatch[1], 10) : 0,
+        deliveryRate: delMatch && delMatch[2] ? delMatch[2] : '0%',
+        pending: penMatch ? parseInt(penMatch[1], 10) : 0,
+        pendingRate: penMatch && penMatch[2] ? penMatch[2] : '0%',
+        partial: partMatch ? parseInt(partMatch[1], 10) : 0,
+        partialRate: partMatch && partMatch[2] ? partMatch[2] : '0%',
+        quantity: qtyMatch ? parseInt(qtyMatch[1], 10) : 0,
+        cancel: canMatch ? parseInt(canMatch[1], 10) : 0,
+        cancelRate: canMatch && canMatch[2] ? canMatch[2] : '0%',
+      };
+
+      const sources: ProductReportSource[] = [];
+
+      // Source 1 (Website) from Row 0
+      const s1Lead = parseCountAndRate(getCellValue(0, cIdx + 1));
+      const s1Confirm = parseCountAndRate(getCellValue(0, cIdx + 2));
+      const s1Del = parseCountAndRate(getCellValue(0, cIdx + 3));
+      const s1Pen = parseCountAndRate(getCellValue(0, cIdx + 4));
+      const s1Part = parseCountAndRate(getCellValue(0, cIdx + 5));
+      const s1Qty = parseCountAndRate(getCellValue(0, cIdx + 6));
+      const s1Can = parseCountAndRate(getCellValue(0, cIdx + 7));
+
+      sources.push({
+        source: firstSourceRaw,
+        sourceName: firstSourceName || 'Website',
+        sharePercent: firstSourceShareMatch ? firstSourceShareMatch[1] : '0%',
+        lead: s1Lead.count,
+        confirm: s1Confirm.count,
+        confirmRate: s1Confirm.rate,
+        delivery: s1Del.count,
+        deliveryRate: s1Del.rate,
+        pending: s1Pen.count,
+        pendingRate: s1Pen.rate,
+        partial: s1Part.count,
+        partialRate: s1Part.rate,
+        quantity: s1Qty.count,
+        cancel: s1Can.count,
+        cancelRate: s1Can.rate,
+      });
+
+      // Subsequent sources from rows 1..12
+      for (let rIdx = 1; rIdx < Math.min(13, rows.length); rIdx++) {
+        const labelInCol = getCellValue(rIdx, 18) || getCellValue(rIdx, cIdx);
+        const labelStr = String(labelInCol).trim();
+        if (
+          labelStr &&
+          /Messenger|Whatsapp|INCOMPLETE|Youtube|Tiktok|Call Direct/i.test(labelStr)
+        ) {
+          const shareMatch = labelStr.match(/\(([\d.]+%)\)/);
+          const cleanName = labelStr.replace(/\s*\([\d.]*%\)/, '').trim();
+
+          // Data row is next row (rIdx + 1)
+          const dataRow = rIdx + 1;
+          const sLead = parseCountAndRate(getCellValue(dataRow, cIdx + 1));
+          const sConfirm = parseCountAndRate(getCellValue(dataRow, cIdx + 2));
+          const sDel = parseCountAndRate(getCellValue(dataRow, cIdx + 3));
+          const sPen = parseCountAndRate(getCellValue(dataRow, cIdx + 4));
+          const sPart = parseCountAndRate(getCellValue(dataRow, cIdx + 5));
+          const sQty = parseCountAndRate(getCellValue(dataRow, cIdx + 6));
+          const sCan = parseCountAndRate(getCellValue(dataRow, cIdx + 7));
+
+          sources.push({
+            source: labelStr,
+            sourceName: cleanName,
+            sharePercent: shareMatch ? shareMatch[1] : '0%',
+            lead: sLead.count,
+            confirm: sConfirm.count,
+            confirmRate: sConfirm.rate,
+            delivery: sDel.count,
+            deliveryRate: sDel.rate,
+            pending: sPen.count,
+            pendingRate: sPen.rate,
+            partial: sPart.count,
+            partialRate: sPart.rate,
+            quantity: sQty.count,
+            cancel: sCan.count,
+            cancelRate: sCan.rate,
+          });
+        }
+      }
+
+      products.push({
+        id: `PROD-REP-${cIdx}`,
+        productName: cleanProductName,
+        rawHeader: colLabel,
+        overall,
+        sources,
+      });
+    }
+
+    return { products, tabName: targetTab };
+  } catch (err) {
+    console.error('Error fetching Sheet 1 reports:', err);
+    return { products: [], tabName: targetTab };
+  }
 };

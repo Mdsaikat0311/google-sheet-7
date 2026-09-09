@@ -96,6 +96,45 @@ export interface CartItem {
   quantity: number;
 }
 
+export interface ProductReportSource {
+  source: string; // e.g. "Website (50.0%)", "Messenger (12.5%)"
+  sourceName: string; // e.g. "Website", "Messenger"
+  sharePercent: string; // e.g. "50.0%"
+  lead: number;
+  confirm: number;
+  confirmRate: string;
+  delivery: number;
+  deliveryRate: string;
+  pending: number;
+  pendingRate: string;
+  partial: number;
+  partialRate: string;
+  quantity: number;
+  cancel: number;
+  cancelRate: string;
+}
+
+export interface Sheet1ProductReport {
+  id: string;
+  productName: string; // e.g. "Rose 599tk", "Watch 599tk", "Doll and toys"
+  rawHeader: string;
+  overall: {
+    lead: number;
+    confirm: number;
+    confirmRate: string;
+    delivery: number;
+    deliveryRate: string;
+    pending: number;
+    pendingRate: string;
+    partial: number;
+    partialRate: string;
+    quantity: number;
+    cancel: number;
+    cancelRate: string;
+  };
+  sources: ProductReportSource[];
+}
+
 export interface SheetMeta {
   spreadsheetId: string;
   title: string;
