@@ -404,24 +404,33 @@ export const fetchOrdersViaAppsScript = async (
     if (!res.ok) return { orders: [], tabName: 'Sheet2' };
     const data = await res.json();
     if (data && data.success && Array.isArray(data.orders)) {
-      const orders: Order[] = data.orders.map((o: any) => ({
-        id: String(o.id || (o.row_number ? `INV-${1000 + o.row_number}` : `ORD-${Date.now()}`)),
-        customerName: o.customer || 'Customer',
-        customerPhone: String(o.phone || ''),
-        customerAddress: o.address || '',
-        product: o.product || 'Standard Product',
-        variant: o.selected_product || 'No Sellect',
-        source: o.source || 'Website',
-        amount: Number(o.cod) || 0,
-        total: Number(o.cod) || 0,
-        quantity: Number(o.quantity) || 1,
-        status: (o.order_status as any) || 'Pending',
-        trackingCode: o.courier_id || undefined,
-        courierStatus: o.courier_status || undefined,
-        steadfastStatus: o.courier_action || (o.courier_id ? 'send to steadfast' : 'No Sellect'),
-        date: o.date ? String(o.date).slice(0, 10) : '08/09/26',
-        rowIndex: Number(o.row_number) || 2,
-      }));
+      const orders: Order[] = data.orders.map((o: any) => {
+        let cleanPhone = String(o.phone || o.customer_phone || o.number || o.mobile || '').trim().replace(/\.0+$/, '');
+        let cleanAddr = String(o.address || o.customer_address || '').trim();
+        if (!cleanPhone && /^\+?\d{10,14}$/.test(cleanAddr.replace(/\s+/g, ''))) {
+          cleanPhone = cleanAddr.replace(/\s+/g, '');
+          cleanAddr = '';
+        }
+
+        return {
+          id: String(o.id || (o.row_number ? `INV-${1000 + o.row_number}` : `ORD-${Date.now()}`)),
+          customerName: o.customer || 'Customer',
+          customerPhone: cleanPhone,
+          customerAddress: cleanAddr,
+          product: o.product || 'Standard Product',
+          variant: o.selected_product || 'No Sellect',
+          source: o.source || 'Website',
+          amount: Number(o.cod) || 0,
+          total: Number(o.cod) || 0,
+          quantity: Number(o.quantity) || 1,
+          status: (o.order_status as any) || 'Pending',
+          trackingCode: o.courier_id || undefined,
+          courierStatus: o.courier_status || undefined,
+          steadfastStatus: o.courier_action || (o.courier_id ? 'send to steadfast' : 'No Sellect'),
+          date: o.date ? String(o.date).slice(0, 10) : '08/09/26',
+          rowIndex: Number(o.row_number) || 2,
+        };
+      });
       return { orders, tabName: 'Sheet2' };
     }
   } catch (err) {
@@ -462,8 +471,8 @@ export const fetchPublicSheetOrders = async (
           }
 
           const invoiceCol = cols.findIndex((h: string) => /invoice|order.*id|inv|আইডি|অর্ডার.*নং|date/i.test(h));
-          const phoneCol = cols.findIndex((h: string) => /phone|mobile|ফোন|মোবাইল|number/i.test(h));
-          const addressCol = cols.findIndex((h: string) => /address|ঠিকানা|সিটি|city|adress/i.test(h));
+          const phoneCol = cols.findIndex((h: string) => /phone|mobile|ফোন|মোবাইল|number|নম্বর|contact/i.test(h));
+          const addressCol = cols.findIndex((h: string) => /address|ঠিকানা|সিটি|city|adress|লোকেশন|location/i.test(h));
           const priceCol = cols.findIndex((h: string) => /price|amount|দাম|মূল্য|total|cod/i.test(h));
           const variantCol = cols.findIndex((h: string) => /variant|ভ্যারিয়েন্ট/i.test(h));
           const sourceCol = cols.findIndex((h: string) => /source|মাধ্যম|সোর্স/i.test(h));
@@ -488,10 +497,26 @@ export const fetchPublicSheetOrders = async (
             if (!row.some((val: string) => val !== '')) continue;
 
             const rawId = (invoiceCol !== -1 && row[invoiceCol]) ? row[invoiceCol] : (row[0] || '');
-            // In Sheet2, Name is in col 5; fallback to col 1 if present
+            // In Sheet2: Col F is Name (5), Col C is Number/Phone (2), Col B is Address (1), Col E is Product (4)
             const nameVal = (nameCol !== -1 && row[nameCol]) ? row[nameCol] : (row[5] || row[1] || '');
-            const phoneVal = (phoneCol !== -1 && row[phoneCol]) ? row[phoneCol] : (row[2] || '');
-            const addrVal = (addressCol !== -1 && row[addressCol]) ? row[addressCol] : (row[1] || row[3] || '');
+
+            // Column C: Phone (Index 2 in 0-based array)
+            let phoneVal = (phoneCol !== -1 && row[phoneCol] && String(row[phoneCol]).trim() !== '')
+              ? String(row[phoneCol]).trim()
+              : String(row[2] || '').trim();
+            phoneVal = phoneVal.replace(/\.0+$/, '').trim();
+
+            // Column B: Address (Index 1 in 0-based array)
+            let addrVal = (addressCol !== -1 && row[addressCol] && String(row[addressCol]).trim() !== '')
+              ? String(row[addressCol]).trim()
+              : String(row[1] || row[3] || '').trim();
+
+            // Intelligent fallback: If Column C was empty in the sheet but Column B holds only digits (like row 6)
+            if (!phoneVal && /^\+?\d{10,14}$/.test(addrVal.replace(/\s+/g, ''))) {
+              phoneVal = addrVal.replace(/\s+/g, '');
+              addrVal = '';
+            }
+
             const prodVal = (productCol !== -1 && row[productCol]) ? row[productCol] : (row[4] || row[7] || 'পণ্য');
             const variantVal = (variantCol !== -1 && row[variantCol]) ? row[variantCol] : (row[7] || 'No Sellect');
             const sourceVal = (sourceCol !== -1 && row[sourceCol]) ? row[sourceCol] : (row[8] || 'Website');
@@ -701,15 +726,15 @@ export const getSheetOrders = async (
     }
 
     const invoiceCol = headers.findIndex(h => /invoice|order.*id|inv|আইডি|অর্ডার.*নং/i.test(h));
-    const phoneCol = headers.findIndex(h => /phone|mobile|ফোন|মোবাইল/i.test(h));
-    const addressCol = headers.findIndex(h => /address|ঠিকানা|সিটি|city/i.test(h));
+    const phoneCol = headers.findIndex(h => /phone|mobile|ফোন|মোবাইল|number|নম্বর|contact/i.test(h));
+    const addressCol = headers.findIndex(h => /address|ঠিকানা|সিটি|city|adress|লোকেশন|location/i.test(h));
     const sourceCol = headers.findIndex(h => /source|মাধ্যম|সোর্স/i.test(h));
     const statusCol = headers.findIndex(h => /status|অবস্থা/i.test(h) && !/courier/i.test(h));
     const trackingCol = headers.findIndex(h => /tracking|code|ট্র্যাকিং/i.test(h));
     const courierCol = headers.findIndex(h => /courier.*status|কুরিয়ার/i.test(h));
     const steadfastCol = headers.findIndex(h => /steadfast|স্টেডফাস্ট/i.test(h));
     const qtyCol = headers.findIndex(h => /qty|quantity|পরিমাণ/i.test(h));
-    const amountCol = headers.findIndex(h => /amount|spend|total|মূল্য|টাকা|দাম/i.test(h));
+    const amountCol = headers.findIndex(h => /amount|spend|total|মূল্য|টাকা|দাম|cod/i.test(h));
 
     const orders: Order[] = [];
 
@@ -717,13 +742,29 @@ export const getSheetOrders = async (
       const r = rows[i];
       if (!r || r.length === 0 || !r.some(cell => String(cell).trim() !== '')) continue;
 
-      // Match exact columns from user's sheet (D: COD, E: Product, F: Name, H: Variant, I: Source, J: Status, K: Tracking, L: Courier Status, M: Steadfast, N: Qty)
+      // Match exact columns from user's sheet:
+      // Col A (0): Date/ID, Col B (1): Address, Col C (2): Phone/Number, Col D (3): COD, Col E (4): Product, Col F (5): Name
       const idVal = invoiceCol !== -1 ? String(r[invoiceCol] || '').trim() : String(r[0] || '').trim();
       const rawAmt = amountCol !== -1 ? r[amountCol] : r[3] || r[12] || r[6]; // Col D: COD
       const prodVal = productCol !== -1 ? String(r[productCol] || '').trim() : String(r[4] || 'Golden Watch Combo').trim(); // Col E
       const nameVal = (nameCol !== -1 && r[nameCol]) ? String(r[nameCol] || '').trim() : String(r[5] || r[1] || '').trim(); // Col F
-      const phoneVal = phoneCol !== -1 ? String(r[phoneCol] || '').trim() : String(r[1] || '').trim();
-      const addrVal = addressCol !== -1 ? String(r[addressCol] || '').trim() : String(r[2] || r[6] || '').trim();
+
+      // Column C: Phone (Index 2 in 0-based array)
+      let phoneVal = phoneCol !== -1 && r[phoneCol] !== undefined && String(r[phoneCol]).trim() !== ''
+        ? String(r[phoneCol]).trim()
+        : String(r[2] || '').trim();
+      phoneVal = phoneVal.replace(/\.0+$/, '').trim();
+
+      // Column B: Address (Index 1 in 0-based array)
+      let addrVal = addressCol !== -1 && r[addressCol] !== undefined && String(r[addressCol]).trim() !== ''
+        ? String(r[addressCol]).trim()
+        : String(r[1] || '').trim();
+
+      // Intelligent fallback: If Column C is empty, but Column B contains only digits (like row 6)
+      if (!phoneVal && /^\+?\d{10,14}$/.test(addrVal.replace(/\s+/g, ''))) {
+        phoneVal = addrVal.replace(/\s+/g, '');
+        addrVal = '';
+      }
       
       // Column H: Variant / Item Toggle
       const variantCol = headers.findIndex(h => /variant|ভেরিয়েন্ট|আইটেম/i.test(h));
