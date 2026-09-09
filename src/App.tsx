@@ -403,12 +403,24 @@ export default function App() {
     }
   };
 
-  // 6. Update Customer Details (Name, Phone, Address in Columns F, C, B)
+  // 6. Update Customer Details (Name, Phone, Address, Price in Columns F, C, B, D)
   const handleUpdateCustomerDetails = async (
     order: Order,
-    details: { customerName: string; customerPhone: string; customerAddress: string }
+    details: {
+      customerName: string;
+      customerPhone: string;
+      customerAddress: string;
+      amount?: number;
+      price?: number;
+    }
   ): Promise<boolean> => {
     const targetRow = resolveRowIndex(order);
+    const newAmount =
+      details.amount !== undefined
+        ? details.amount
+        : details.price !== undefined
+        ? details.price
+        : (order.total || order.amount || 599);
 
     // Optimistically update orders in local state
     setOrders((prev) =>
@@ -419,6 +431,8 @@ export default function App() {
               customerName: details.customerName,
               customerPhone: details.customerPhone,
               customerAddress: details.customerAddress,
+              amount: newAmount,
+              total: newAmount,
               rowIndex: targetRow,
             }
           : o
@@ -434,6 +448,8 @@ export default function App() {
               customerName: details.customerName,
               customerPhone: details.customerPhone,
               customerAddress: details.customerAddress,
+              amount: newAmount,
+              total: newAmount,
               rowIndex: targetRow,
             }
           : null
@@ -446,14 +462,17 @@ export default function App() {
         accessToken,
         orderSheetTab,
         targetRow,
-        details,
+        {
+          ...details,
+          amount: newAmount,
+        },
         order.id
       );
-      showToast(`✅ অর্ডারের নাম, ফোন ও ঠিকানা গুগল শিটে আপডেট হয়েছে!`);
+      showToast(`✅ গ্রাহকের নাম, ফোন, ঠিকানা ও মূল্য গুগল শিটে আপডেট হয়েছে!`);
       return true;
     } catch (err: any) {
       console.error('Failed to sync customer details to sheet:', err);
-      showToast(`❌ গুগল শিটে কাস্টমার তথ্য আপডেট ব্যর্থ: ${err.message || 'ত্রুটি'}`, 'error');
+      showToast(`❌ গুগল শিটে তথ্য আপডেট ব্যর্থ: ${err.message || 'ত্রুটি'}`, 'error');
       return false;
     }
   };

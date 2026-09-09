@@ -842,6 +842,12 @@ export interface AppsScriptUpdatePayload {
   delivery_amount?: number;
   delivery_charge?: number;
   cod?: number;
+  amount?: number;
+  price?: number;
+  total?: number;
+  number?: string;
+  mobile?: string;
+  [key: string]: any;
 }
 
 /**
@@ -856,9 +862,11 @@ export const updateOrderViaAppsScript = async (
   const targetUrl = scriptUrl || getAppsScriptUrl();
   const rowNum = payload.row_number || payload.row || payload.rowIndex;
   const orderId = payload.id || payload.orderId;
+  const actionToUse = payload.action || 'update_order';
 
   const fullPayload: Record<string, any> = {
-    action: payload.action || 'update',
+    action: actionToUse,
+    action_type: actionToUse,
     ...payload,
   };
   if (rowNum) {
@@ -874,7 +882,8 @@ export const updateOrderViaAppsScript = async (
   // 1. Method A: GET with query params (Guaranteed to work and bypass CORS in Google Apps Script)
   try {
     const getUrl = new URL(targetUrl);
-    getUrl.searchParams.set('action', 'update');
+    getUrl.searchParams.set('action', actionToUse);
+    getUrl.searchParams.set('action_name', actionToUse);
     if (rowNum) {
       getUrl.searchParams.set('row', String(rowNum));
       getUrl.searchParams.set('row_number', String(rowNum));
@@ -918,11 +927,13 @@ export const updateOrderViaAppsScript = async (
       getUrl.searchParams.set('name', String(nm));
     }
     // Column C: Customer Phone
-    if (payload.phone || payload.customer_phone || payload.customerPhone) {
-      const ph = payload.phone || payload.customer_phone || payload.customerPhone;
+    if (payload.phone || payload.customer_phone || payload.customerPhone || payload.number || payload.mobile) {
+      const ph = payload.phone || payload.customer_phone || payload.customerPhone || payload.number || payload.mobile;
       getUrl.searchParams.set('phone', String(ph));
       getUrl.searchParams.set('customer_phone', String(ph));
       getUrl.searchParams.set('customerPhone', String(ph));
+      getUrl.searchParams.set('number', String(ph));
+      getUrl.searchParams.set('mobile', String(ph));
     }
     // Column B: Customer Address
     if (payload.address || payload.customer_address || payload.customerAddress) {
@@ -930,6 +941,14 @@ export const updateOrderViaAppsScript = async (
       getUrl.searchParams.set('address', String(addr));
       getUrl.searchParams.set('customer_address', String(addr));
       getUrl.searchParams.set('customerAddress', String(addr));
+    }
+    // Column D: COD / Price / Amount
+    if (payload.cod !== undefined || payload.amount !== undefined || payload.price !== undefined || payload.total !== undefined) {
+      const pr = payload.cod !== undefined ? payload.cod : (payload.amount !== undefined ? payload.amount : (payload.price !== undefined ? payload.price : payload.total));
+      getUrl.searchParams.set('cod', String(pr));
+      getUrl.searchParams.set('amount', String(pr));
+      getUrl.searchParams.set('price', String(pr));
+      getUrl.searchParams.set('total', String(pr));
     }
 
     Object.entries(fullPayload).forEach(([key, val]) => {
@@ -1242,9 +1261,10 @@ export const updateSheetQuantity = async (
 };
 
 /**
- * Update Customer Details (Name, Phone, Address) in Google Sheet
+ * Update Customer Details (Name, Phone, Address, Price) in Google Sheet
  * - Col B (Col 2): Address
  * - Col C (Col 3): Phone
+ * - Col D (Col 4): COD / Price / Amount
  * - Col F (Col 6): Customer Name
  */
 export const updateSheetCustomerDetails = async (
@@ -1256,66 +1276,91 @@ export const updateSheetCustomerDetails = async (
     customerName: string;
     customerPhone: string;
     customerAddress: string;
+    amount?: number;
+    price?: number;
   },
   orderId?: string
 ) => {
+  const cleanId = extractSpreadsheetId(spreadsheetId);
+  const targetTab = tabName || 'Sheet2';
+  const priceVal =
+    details.amount !== undefined
+      ? details.amount
+      : details.price !== undefined
+      ? details.price
+      : undefined;
+
   if (accessToken && rowIndex > 0) {
     try {
-      await Promise.all([
-        // Col B: Address
-        fetch(
-          `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(`'${tabName}'!B${rowIndex}`)}?valueInputOption=USER_ENTERED`,
-          {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              range: `'${tabName}'!B${rowIndex}`,
-              values: [[details.customerAddress]],
-            }),
-          }
-        ),
-        // Col C: Phone
-        fetch(
-          `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(`'${tabName}'!C${rowIndex}`)}?valueInputOption=USER_ENTERED`,
-          {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              range: `'${tabName}'!C${rowIndex}`,
-              values: [[details.customerPhone]],
-            }),
-          }
-        ),
-        // Col F: Customer Name
-        fetch(
-          `${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(`'${tabName}'!F${rowIndex}`)}?valueInputOption=USER_ENTERED`,
-          {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              range: `'${tabName}'!F${rowIndex}`,
-              values: [[details.customerName]],
-            }),
-          }
-        ),
-      ]);
-      return { success: true };
+      const batchUrl = `${SHEETS_API_BASE}/${cleanId}/values:batchUpdate`;
+      const dataRanges: { range: string; values: any[][] }[] = [
+        {
+          range: `'${targetTab}'!B${rowIndex}`,
+          values: [[details.customerAddress || '']],
+        },
+        {
+          range: `'${targetTab}'!C${rowIndex}`,
+          values: [[details.customerPhone || '']],
+        },
+        {
+          range: `'${targetTab}'!F${rowIndex}`,
+          values: [[details.customerName || '']],
+        },
+      ];
+
+      if (priceVal !== undefined && priceVal !== null) {
+        dataRanges.push({
+          range: `'${targetTab}'!D${rowIndex}`,
+          values: [[priceVal]],
+        });
+      }
+
+      const batchRes = await fetch(batchUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: dataRanges,
+        }),
+      });
+
+      if (batchRes.ok) {
+        return await batchRes.json();
+      }
+
+      // If batchUpdate fails, try individual sequential PUT calls
+      let anyFailed = false;
+      for (const item of dataRanges) {
+        const putUrl = `${SHEETS_API_BASE}/${cleanId}/values/${encodeURIComponent(item.range)}?valueInputOption=USER_ENTERED`;
+        const singleRes = await fetch(putUrl, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            range: item.range,
+            values: item.values,
+          }),
+        });
+        if (!singleRes.ok) {
+          anyFailed = true;
+          break;
+        }
+      }
+      if (!anyFailed) {
+        return { success: true };
+      }
     } catch (err) {
       console.warn('Direct Sheet API customer details update failed, falling back to Apps Script:', err);
     }
   }
 
   return updateOrderViaAppsScript({
-    action: 'update',
+    action: 'update_order',
     row_number: rowIndex,
     row: rowIndex,
     rowIndex: rowIndex,
@@ -1328,9 +1373,15 @@ export const updateSheetCustomerDetails = async (
     phone: details.customerPhone,
     customer_phone: details.customerPhone,
     customerPhone: details.customerPhone,
+    number: details.customerPhone,
+    mobile: details.customerPhone,
     address: details.customerAddress,
     customer_address: details.customerAddress,
     customerAddress: details.customerAddress,
+    amount: priceVal,
+    cod: priceVal,
+    price: priceVal,
+    total: priceVal,
   });
 };
 
@@ -1459,6 +1510,35 @@ function handleOrderUpdate_(data) {
 
   const updatedFields = [];
 
+  // Column B (Address)
+  const addressVal = data.address !== undefined ? data.address : (data.customerAddress !== undefined ? data.customerAddress : data.customer_address);
+  if (addressVal !== undefined) {
+    sheet.getRange(rowNumber, COL.address).setValue(String(addressVal));
+    updatedFields.push("B: " + addressVal);
+  }
+
+  // Column C (Phone)
+  const phoneVal = data.phone !== undefined ? data.phone : (data.customerPhone !== undefined ? data.customerPhone : data.customer_phone);
+  if (phoneVal !== undefined) {
+    sheet.getRange(rowNumber, COL.phone).setValue(String(phoneVal));
+    updatedFields.push("C: " + phoneVal);
+  }
+
+  // Column D (COD / Price / Amount)
+  const codVal = data.cod !== undefined ? data.cod : (data.amount !== undefined ? data.amount : data.price);
+  if (codVal !== undefined && codVal !== "") {
+    const numCod = parseFloat(codVal) || 0;
+    sheet.getRange(rowNumber, COL.cod).setValue(numCod);
+    updatedFields.push("D: " + numCod);
+  }
+
+  // Column F (Customer Name)
+  const nameVal = data.customer !== undefined ? data.customer : (data.customerName !== undefined ? data.customerName : (data.customer_name !== undefined ? data.customer_name : data.name));
+  if (nameVal !== undefined) {
+    sheet.getRange(rowNumber, COL.customerName).setValue(String(nameVal));
+    updatedFields.push("F: " + nameVal);
+  }
+
   // Column H (Variant)
   const variantVal = data.selectedProduct !== undefined ? data.selectedProduct : (data.selected_product !== undefined ? data.selected_product : data.variant);
   if (variantVal !== undefined) {
@@ -1494,10 +1574,10 @@ function handleOrderUpdate_(data) {
     updatedFields.push("N: " + numQty);
   }
 
-  // Direct Col/Value
+  // Direct Col/Value (Allows any column 1-26 to be updated directly)
   if (data.col && data.value !== undefined) {
     const directCol = parseInt(data.col, 10);
-    if ([COL.selectedProduct, COL.source, COL.orderStatus, COL.courierAction, COL.quantity].indexOf(directCol) !== -1) {
+    if (!isNaN(directCol) && directCol >= 1 && directCol <= 26) {
       sheet.getRange(rowNumber, directCol).setValue(data.value);
       updatedFields.push("Col " + directCol + ": " + data.value);
     }
@@ -1505,6 +1585,8 @@ function handleOrderUpdate_(data) {
 
   return responseJson_({
     success: true,
+    message: "Google Sheet updated",
+    row_number: rowNumber,
     row: rowNumber,
     updated: updatedFields
   });

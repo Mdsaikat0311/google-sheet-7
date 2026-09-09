@@ -36,7 +36,13 @@ interface ViewOrderModalProps {
   onDeleteOrder?: (order: Order) => void;
   onUpdateCustomerDetails?: (
     order: Order,
-    details: { customerName: string; customerPhone: string; customerAddress: string }
+    details: {
+      customerName: string;
+      customerPhone: string;
+      customerAddress: string;
+      amount?: number;
+      price?: number;
+    }
   ) => Promise<boolean> | void;
 }
 
@@ -90,11 +96,12 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Customer Editing State
+  // Customer & Price Editing State
   const [isEditingCustomer, setIsEditingCustomer] = useState(false);
   const [name, setName] = useState(order?.customerName || '');
   const [phone, setPhone] = useState(order?.customerPhone || '');
   const [address, setAddress] = useState(order?.customerAddress || '');
+  const [price, setPrice] = useState<number | string>(order?.total || order?.amount || 599);
   const [isSavingCustomer, setIsSavingCustomer] = useState(false);
 
   // Image editing state
@@ -106,11 +113,12 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
       setName(order.customerName || '');
       setPhone(order.customerPhone || '');
       setAddress(order.customerAddress || '');
+      setPrice(order.total || order.amount || 599);
       setCustomImageUrl(order.image || '');
       setIsEditingCustomer(false);
       setIsEditingImage(false);
     }
-  }, [order?.id, order?.customerName, order?.customerPhone, order?.customerAddress, order?.image]);
+  }, [order?.id, order?.customerName, order?.customerPhone, order?.customerAddress, order?.total, order?.amount, order?.image]);
 
   if (!order) return null;
 
@@ -135,6 +143,7 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
     setName(order.customerName || '');
     setPhone(order.customerPhone || '');
     setAddress(order.customerAddress || '');
+    setPrice(order.total || order.amount || 599);
     setIsEditingCustomer(false);
   };
 
@@ -148,6 +157,11 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
       alert('ফোন নম্বর লিখুন');
       return;
     }
+    const numPrice = Number(price);
+    if (isNaN(numPrice) || numPrice < 0) {
+      alert('সঠিক অর্ডারের মূল্য (Price) লিখুন');
+      return;
+    }
 
     setIsSavingCustomer(true);
     try {
@@ -156,6 +170,8 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
           customerName: name.trim(),
           customerPhone: phone.trim(),
           customerAddress: address.trim(),
+          amount: numPrice,
+          price: numPrice,
         });
       }
       setIsEditingCustomer(false);
@@ -257,9 +273,21 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
                   </div>
                   <div className="text-right shrink-0">
                     <span className="text-[10px] text-gray-400 font-medium block">মোট মূল্য (Col D)</span>
-                    <span className="font-mono font-bold text-base sm:text-lg text-emerald-400">
-                      ৳{order.total || order.amount || 599}
-                    </span>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span className="font-mono font-bold text-base sm:text-lg text-emerald-400">
+                        ৳{order.total || order.amount || 599}
+                      </span>
+                      {!isEditingCustomer && (
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingCustomer(true)}
+                          className="p-1 rounded text-gray-400 hover:text-pink-400 hover:bg-[#1f2536] transition-colors cursor-pointer"
+                          title="মূল্য ও তথ্য এডিট করুন"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -482,30 +510,30 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
             )}
           </div>
 
-          {/* Customer Card: View & Edit Customer Name, Phone, Address */}
+          {/* Customer Card: View & Edit Customer Name, Phone, Address, Price */}
           <div className="p-3.5 sm:p-4 rounded-xl bg-[#161a26] border border-[#232b3e] space-y-3">
             <div className="flex items-center justify-between pb-1 border-b border-[#202738]/60">
               <span className="text-xs font-semibold text-gray-400 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-pink-400" />
-                গ্রাহকের তথ্য (Columns F, C, B)
+                গ্রাহকের তথ্য ও মূল্য (Columns F, C, B, D)
               </span>
               {!isEditingCustomer ? (
                 <button
                   type="button"
                   onClick={() => setIsEditingCustomer(true)}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 text-xs font-semibold border border-pink-500/30 transition-all cursor-pointer"
-                  title="নাম, ফোন বা ঠিকানা এডিট করুন"
+                  title="নাম, ফোন, ঠিকানা ও মূল্য এডিট করুন"
                 >
                   <Edit3 className="w-3 h-3" />
                   <span>এডিট করুন</span>
                 </button>
               ) : (
-                <span className="text-[11px] text-pink-400 font-medium">তথ্য সংশোধন মুড</span>
+                <span className="text-[11px] text-pink-400 font-medium">তথ্য ও মূল্য সংশোধন মুড</span>
               )}
             </div>
 
             {isEditingCustomer ? (
-              /* Customer Edit Form */
+              /* Customer & Price Edit Form */
               <form onSubmit={handleSaveCustomer} className="space-y-3 pt-1">
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-300 mb-1">
@@ -557,6 +585,25 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-300 mb-1">
+                    অর্ডারের মূল্য / প্রাইস (Column D):
+                  </label>
+                  <div className="relative">
+                    <span className="w-3.5 h-3.5 text-gray-500 absolute left-3 top-2 font-bold text-xs">৳</span>
+                    <input
+                      type="number"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      placeholder="599"
+                      min="0"
+                      step="any"
+                      className="w-full bg-[#0d1017] border border-[#263147] focus:border-pink-500 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 outline-none font-mono transition-colors"
+                      required
+                    />
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     type="submit"
@@ -582,22 +629,31 @@ export const ViewOrderModal: React.FC<ViewOrderModalProps> = ({
               </form>
             ) : (
               /* Normal Customer View */
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h4 className="font-bold text-gray-100 text-sm">{order.customerName || 'গ্রাহকের নাম নেই'}</h4>
-                  <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                    <MapPin className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-                    <span>{order.customerAddress || 'ঢাকা'}</span>
-                  </p>
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="font-bold text-gray-100 text-sm">{order.customerName || 'গ্রাহকের নাম নেই'}</h4>
+                    <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                      <MapPin className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                      <span>{order.customerAddress || 'ঢাকা'}</span>
+                    </p>
+                  </div>
+
+                  <a
+                    href={`tel:${order.customerPhone}`}
+                    className="flex items-center gap-1.5 text-xs text-pink-400 hover:underline font-mono bg-pink-500/10 px-2.5 py-1.5 rounded-lg border border-pink-500/20 shrink-0 active:scale-95"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>{order.customerPhone || 'ফোন নম্বর নেই'}</span>
+                  </a>
                 </div>
 
-                <a
-                  href={`tel:${order.customerPhone}`}
-                  className="flex items-center gap-1.5 text-xs text-pink-400 hover:underline font-mono bg-pink-500/10 px-2.5 py-1.5 rounded-lg border border-pink-500/20 shrink-0 active:scale-95"
-                >
-                  <Phone className="w-3.5 h-3.5" />
-                  <span>{order.customerPhone || 'ফোন নম্বর নেই'}</span>
-                </a>
+                <div className="flex items-center justify-between pt-1 text-xs">
+                  <span className="text-gray-400 font-medium">অর্ডারের মূল্য (Col D):</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    ৳{order.total || order.amount || 599}.00 BDT
+                  </span>
+                </div>
               </div>
             )}
 

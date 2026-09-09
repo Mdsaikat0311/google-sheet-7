@@ -248,7 +248,7 @@ export const SheetSettingsModal: React.FC<SheetSettingsModalProps> = ({
             </div>
 
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              অ্যাপ থেকে কলাম H, I, J, M, N এডিট করলে সরাসরি গুগল শিটে সেভ হওয়ার জন্য Apps Script Web App কাজ করে।
+              অ্যাপ থেকে গ্রাহকের নাম, ফোন, ঠিকানা, মূল্য (কলাম B, C, D, F) এবং স্ট্যাটাস ও ভ্যারিয়েন্ট এডিট করলে সরাসরি গুগল শিটে সেভ হওয়ার জন্য Apps Script Web App কাজ করে।
             </p>
 
             <div>
